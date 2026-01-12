@@ -228,9 +228,6 @@ If you use this code in your research, please cite:
 }
 ```
 
-## License
-
-[Add your license here]
 
 ## Acknowledgments
 
