@@ -83,89 +83,60 @@ def train_interpolant(flow_interpolant: FlowInterpolant, X_0: torch.Tensor, X_1:
         indices = torch.randperm(len(X_0))[:batch_size]
         X_0_batch, X_1_batch = X_0[indices], X_1[indices]
 
-        # Sample different t for each element in the batch
-        t_batch = torch.rand(batch_size) * 0.88 + 0.01  # Uniform in [0.01, 0.99]
-        t_batch = torch.clamp(t_batch, 0.01, 0.99)
+        # Sample single t for the entire batch (changes each epoch)
+        t = float(torch.rand(1).item() * 0.88 + 0.01)  # Uniform in [0.01, 0.99]
+        t = float(np.clip(t, 0.01, 0.99))
 
-        # Compute per-sample weights
-        wt_batch = 1.0 / (1 - t_batch)**2  # Shape: (batch_size,)
+        # Compute time-dependent weight
+        wt = 1.0 / (1 - t) ** 2
 
-        # Track per-sample losses for weighting
-        per_sample_losses = torch.zeros(batch_size)
+        total_loss = torch.tensor(0.0)
         current_losses = {k: 0.0 for k in loss_history.keys()}
 
         # ===== Flow Norm Regularization =====
-        # Need to compute per-sample since t is different for each
-        F_t_list = []
-        for i in range(batch_size):
-            F_t_i, _ = flow_interpolant.flow(X_0_batch[i:i+1], X_1_batch[i:i+1], t_batch[i].item())
-            F_t_list.append(F_t_i)
-        F_t = torch.cat(F_t_list, dim=0)
-        flow_norm_per_sample = torch.norm(F_t, dim=1).pow(2)
-        flow_norms.append(flow_norm_per_sample.mean().item())
-        current_losses['flow_norm'] = flow_norm_per_sample.mean().item()
+        F_t, _ = flow_interpolant.flow(X_0_batch, X_1_batch, t)
+        flow_norm = torch.norm(F_t, dim=1).pow(2).mean()
+        flow_norms.append(flow_norm.item())
+        current_losses['flow_norm'] = flow_norm.item()
 
         if lambda_flow_reg > 0:
-            per_sample_losses = per_sample_losses + lambda_flow_reg * flow_norm_per_sample
+            total_loss = total_loss + lambda_flow_reg * flow_norm
 
         # ===== Time Derivative Loss: (∂_t log p_t)² =====
         if lambda_dt_logp > 0:
-            dt_log_prob_list = []
-            for i in range(batch_size):
-                dt_log_prob_i = flow_interpolant.compute_dt_log_prob(
-                    X_0_batch[i:i+1], X_1_batch[i:i+1], t_batch[i].item()
-                )
-                dt_log_prob_list.append(dt_log_prob_i)
-            dt_log_prob = torch.cat(dt_log_prob_list, dim=0)
+            dt_log_prob = flow_interpolant.compute_dt_log_prob(X_0_batch, X_1_batch, t)
             dt_log_prob = torch.clamp(dt_log_prob, -100.0, 100.0)
-            dt_logp_per_sample = dt_log_prob ** 2
-            current_losses['dt_logp'] = dt_logp_per_sample.mean().item()
-            per_sample_losses = per_sample_losses + lambda_dt_logp * dt_logp_per_sample
+            dt_logp_loss = (dt_log_prob ** 2).mean()
+            current_losses['dt_logp'] = dt_logp_loss.item()
+            total_loss = total_loss + lambda_dt_logp * dt_logp_loss
 
         # ===== Gradient Norm Loss: ||∇ log p_t||² =====
         if lambda_grad_logp > 0:
-            grad_norm_sq_list = []
-            for i in range(batch_size):
-                grad_norm_sq_i = flow_interpolant.compute_grad_log_prob(
-                    X_0_batch[i:i+1], X_1_batch[i:i+1], t_batch[i].item()
-                )
-                grad_norm_sq_list.append(grad_norm_sq_i)
-            grad_norm_sq = torch.cat(grad_norm_sq_list, dim=0)
-            current_losses['grad_logp'] = grad_norm_sq.mean().item()
-            per_sample_losses = per_sample_losses + lambda_grad_logp * grad_norm_sq
+            grad_norm_sq = flow_interpolant.compute_grad_log_prob(X_0_batch, X_1_batch, t)
+            grad_logp_loss = grad_norm_sq.mean()
+            current_losses['grad_logp'] = grad_logp_loss.item()
+            total_loss = total_loss + lambda_grad_logp * grad_logp_loss
 
         # ===== Hessian Trace Loss (Hutchinson estimator): (tr(∇² log p_t))² =====
         if lambda_hessian_trace > 0:
-            hessian_trace_list = []
-            for i in range(batch_size):
-                X_t_i, log_pt_i = flow_interpolant.compute_log_prob_for_hessian(
-                    X_0_batch[i:i+1], X_1_batch[i:i+1], t_batch[i].item()
-                )
-                trace_est_i = hutchinson_trace_estimator(log_pt_i, X_t_i, n_samples=n_hutchinson_samples)
-                hessian_trace_list.append(trace_est_i)
-            trace_est = torch.cat(hessian_trace_list, dim=0)
+            X_t, log_pt = flow_interpolant.compute_log_prob_for_hessian(X_0_batch, X_1_batch, t)
+            trace_est = hutchinson_trace_estimator(log_pt, X_t, n_samples=n_hutchinson_samples)
             trace_est = torch.clamp(trace_est, -1000.0, 1000.0)
-            hessian_trace_per_sample = trace_est ** 2
-            current_losses['hessian_trace'] = hessian_trace_per_sample.mean().item()
-            per_sample_losses = per_sample_losses + lambda_hessian_trace * hessian_trace_per_sample
+            hessian_trace_loss = (trace_est ** 2).mean()
+            current_losses['hessian_trace'] = hessian_trace_loss.item()
+            total_loss = total_loss + lambda_hessian_trace * hessian_trace_loss
 
         # ===== Hessian Frobenius Norm Loss: ||∇² log p_t||_F² =====
         if lambda_hessian_frob > 0:
-            hessian_frob_list = []
-            for i in range(batch_size):
-                X_t_i, log_pt_i = flow_interpolant.compute_log_prob_for_hessian(
-                    X_0_batch[i:i+1], X_1_batch[i:i+1], t_batch[i].item()
-                )
-                hessian_frob_i = compute_hessian_frobenius_norm(log_pt_i, X_t_i)
-                hessian_frob_list.append(hessian_frob_i)
-            hessian_frob = torch.cat(hessian_frob_list, dim=0)
+            X_t, log_pt = flow_interpolant.compute_log_prob_for_hessian(X_0_batch, X_1_batch, t)
+            hessian_frob = compute_hessian_frobenius_norm(log_pt, X_t)
             hessian_frob = torch.clamp(hessian_frob, 0.0, 10000.0)
-            current_losses['hessian_frob'] = hessian_frob.mean().item()
-            per_sample_losses = per_sample_losses + lambda_hessian_frob * hessian_frob
+            hessian_frob_loss = hessian_frob.mean()
+            current_losses['hessian_frob'] = hessian_frob_loss.item()
+            total_loss = total_loss + lambda_hessian_frob * hessian_frob_loss
 
-        # Apply per-sample time-dependent weighting, then average
-        weighted_losses = wt_batch * per_sample_losses
-        total_loss = weighted_losses.mean()
+        # Apply time-dependent weighting
+        total_loss = wt * total_loss
         current_losses['total'] = total_loss.item()
 
         total_loss.backward()

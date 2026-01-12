@@ -30,9 +30,9 @@ def main():
     #   lambda_flow_reg: ||F||² - flow output regularization
 
     loss_config = {
-        'lambda_dt_logp': 0.0,        # Time derivative loss
-        'lambda_grad_logp': 1.0,       # Gradient norm regularization
-        'lambda_hessian_trace': 1.0,   # Hutchinson trace estimator
+        'lambda_dt_logp': 1.0,        # Time derivative loss
+        'lambda_grad_logp': 0.0,       # Gradient norm regularization
+        'lambda_hessian_trace': 0.0,   # Hutchinson trace estimator
         'lambda_hessian_frob': 0.0,    # Hessian Frobenius norm
         'lambda_flow_reg': 1.0,        # Flow regularization
         'n_hutchinson_samples': 1,     # Samples for Hutchinson estimator
@@ -41,7 +41,7 @@ def main():
     # Train interpolant
     loss_history, flow_norms = train_interpolant(
         flow_interpolant, X_0_torch, X_1_torch,
-        num_epochs=2000, lr=3e-4, **loss_config
+        num_epochs=400, lr=3e-4, **loss_config
     )
 
     # Plot interpolant training losses

@@ -136,7 +136,6 @@ class FlowInterpolant:
             params = self.flow.condition_net(condition_input)
 
             log_scale = torch.clamp(params[:, :self.dim], -5, 5)
-            scale = torch.exp(log_scale)
 
             # Log det Jacobian: sum of log((1-t) * scale) = dim*log(1-t) + sum(log_scale)
             log_one_minus_t = torch.log(torch.abs(1 - t_tensor) + 1e-8)
