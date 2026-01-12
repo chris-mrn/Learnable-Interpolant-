@@ -216,18 +216,6 @@ trace_est = E[v^T ∇² log p_t v]  # v ~ N(0, I)
 4. **Visualization**: Check `outputs/figures/` to monitor training progress
 5. **Time Weighting**: The `1/(1-t)²` weighting is crucial for learning near the data distribution
 
-## Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@misc{learned_interpolant_flow_matching,
-  title={Flow Matching with Learned Stochastic Interpolation},
-  year={2026},
-  url={https://github.com/yourusername/Learn_interpolant}
-}
-```
-
 
 ## Acknowledgments
 
